@@ -24,6 +24,8 @@ object Result {
 
   def failure[A](reason: String, input: String, start: Int): Result[A] =
     Failure(reason, input, start)
+
+
 }
 
 /** The parse succeeded.

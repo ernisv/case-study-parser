@@ -16,10 +16,13 @@
 
 package parser
 
-import cats.Functor
+import cats.kernel.Eq
+import cats.{Functor, Monoid}
 
 sealed trait Parser[A] {
   import Parser._
+
+  def orElse(p: Parser[A]): Parser[A] = OrElseParser(this, p)
 
   def map[B](f: A => B): Parser[B] =
     ParserMap(this, f)
@@ -27,6 +30,15 @@ sealed trait Parser[A] {
   def parse(input: String): Result[A] = {
     def loop[A](parser: Parser[A], index: Int): Result[A] =
       parser match {
+        case FailingParser() =>
+          Failure[A]("failure", input, 0)
+
+        case OrElseParser(source, otherwise) =>
+          loop(source, index) match {
+            case _: Failure[A] => loop(otherwise, index)
+            case success: Success[A] => success
+          }
+
         case ParserMap(source, f) =>
           loop(source, index) match {
             case Failure(reason, input, start) => Failure(reason, input, start)
@@ -51,6 +63,10 @@ sealed trait Parser[A] {
 object Parser {
   def string(value: String): Parser[String] = ParserString(value)
 
+  def fail[A]: Parser[A] = FailingParser()
+
+  final case class FailingParser[A]() extends Parser[A]
+  final case class OrElseParser[A](source: Parser[A], otherwise: Parser[A]) extends Parser[A]
   final case class ParserString(value: String) extends Parser[String]
   final case class ParserMap[A, B](source: Parser[A], f: A => B)
       extends Parser[B]
@@ -60,4 +76,5 @@ object Parser {
       def map[A, B](fa: Parser[A])(f: A => B): Parser[B] =
         fa.map(f)
     }
+
 }

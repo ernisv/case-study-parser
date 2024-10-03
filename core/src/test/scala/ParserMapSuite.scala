@@ -16,10 +16,12 @@
 
 package parser
 
-import hedgehog._
+import cats.implicits.*
+import hedgehog.*
 import hedgehog.munit.HedgehogSuite
 
 class ParserMapSuite extends HedgehogSuite {
+
   property("map applies expected transform when underlying parser succeeds") {
     for {
       // We include 0 in the range because parsing an empty String is valid
