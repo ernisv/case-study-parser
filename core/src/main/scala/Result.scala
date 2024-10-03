@@ -45,3 +45,6 @@ final case class Success[A](result: A, input: String, offset: Int)
   */
 final case class Failure[A](reason: String, input: String, start: Int)
     extends Result[A]
+
+final case class Album(artist: String, name: String, year: Int)
+

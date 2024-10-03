@@ -16,8 +16,9 @@
 
 package parser
 
+import cats.implicits.toFunctorOps
 import cats.kernel.Eq
-import cats.{Functor, Monoid}
+import cats.{Applicative, Functor, Monoid, Semigroupal}
 
 sealed trait Parser[A] {
   import Parser._
@@ -27,9 +28,32 @@ sealed trait Parser[A] {
   def map[B](f: A => B): Parser[B] =
     ParserMap(this, f)
 
+  def flatMap[B](f: A => Parser[B]): Parser[B] = ParserFlatMap(this, f)
+
   def parse(input: String): Result[A] = {
     def loop[A](parser: Parser[A], index: Int): Result[A] =
       parser match {
+        case ConstParser(c: A) =>
+          Success(c, input, index)
+
+        case ParserFlatMap(source, f) =>
+          loop(source, index) match {
+            case Failure(reason, input, start) => Failure(reason, input, start)
+            case Success(res, _, offset) =>
+              loop(f(res), offset)
+          }
+
+        case ProductParser(pa, pb) =>
+          loop(pa, index) match {
+            case Success(resA, input, offsetA) =>
+              loop(pb, offsetA) match {
+                case Success(resB, input, offsetB) =>
+                  Success((resA, resB), input, offsetB)
+                case Failure(reason, input, start) => Failure(reason, input, start)
+              }
+            case Failure(reason, input, start) => Failure(reason, input, start)
+          }
+
         case FailingParser() =>
           Failure[A]("failure", input, 0)
 
@@ -55,6 +79,16 @@ sealed trait Parser[A] {
               input,
               index
             )
+
+        case _: FieldsParser =>
+          def checkKnownType(typeStr: String): Option[Result[String]] = {
+            if (input.startsWith(s"${typeStr}: "))
+              Some(Success(typeStr, input, index + typeStr.length + 2))
+            else None
+          }
+          checkKnownType("number")
+          .orElse(checkKnownType("string"))
+            .getOrElse(Failure("Field type not known", input, index))
       }
 
     loop(this, 0)
@@ -63,18 +97,29 @@ sealed trait Parser[A] {
 object Parser {
   def string(value: String): Parser[String] = ParserString(value)
 
+  def int(number: Int): Parser[Int] = Parser.string(number.toString).as(number)
+
+  def fields(): Parser[String] = FieldsParser()
+
   def fail[A]: Parser[A] = FailingParser()
 
   final case class FailingParser[A]() extends Parser[A]
+  final case class ConstParser[A](const: A) extends Parser[A]
   final case class OrElseParser[A](source: Parser[A], otherwise: Parser[A]) extends Parser[A]
   final case class ParserString(value: String) extends Parser[String]
-  final case class ParserMap[A, B](source: Parser[A], f: A => B)
-      extends Parser[B]
+  final case class ParserMap[A, B](source: Parser[A], f: A => B) extends Parser[B]
+  final case class ProductParser[A, B](pa: Parser[A], pb: Parser[B]) extends Parser[(A, B)]
+  final case class FieldsParser() extends Parser[String]
+  final case class ParserFlatMap[A, B](source: Parser[A], f: A => Parser[B]) extends Parser[B]
 
   implicit val parserFunctorInstance: Functor[Parser] =
     new Functor[Parser] {
       def map[A, B](fa: Parser[A])(f: A => B): Parser[B] =
         fa.map(f)
     }
+
+  implicit val parserApplicative: Semigroupal[Parser] = new Semigroupal[Parser] {
+    override def product[A, B](fa: Parser[A], fb: Parser[B]): Parser[(A, B)] = ProductParser(fa, fb)
+  }
 
 }
